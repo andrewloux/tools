@@ -107,6 +107,75 @@ const B = 2
 	}
 }
 
+func TestMCPCommandNewTestFileWithoutRoots(t *testing.T) {
+	if !supportsFsnotify(runtime.GOOS) {
+		t.Skipf("skipping on %s; fsnotify is not supported", runtime.GOOS)
+	}
+	testenv.NeedsExec(t)
+	tree := writeTree(t, `
+-- go.mod --
+module example.com
+go 1.18
+-- a.go --
+package p
+const A = 1
+-- a_test.go --
+package p
+import "testing"
+func TestA(t *testing.T) {}
+`)
+	goplsCmd := exec.Command(os.Args[0], "mcp")
+	goplsCmd.Env = append(os.Environ(), "ENTRYPOINT=goplsMain")
+	goplsCmd.Dir = tree
+	goplsCmd.Stderr = t.Output()
+	// Explicit empty capabilities suppress the SDK's default roots support.
+	client := mcp.NewClient(&mcp.Implementation{Name: "client", Version: "v0.0.1"}, &mcp.ClientOptions{
+		Capabilities: &mcp.ClientCapabilities{},
+	})
+	session, err := client.Connect(t.Context(), &mcp.CommandTransport{Command: goplsCmd}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := session.Close(); err != nil {
+			t.Logf("closing MCP connection: %v", err)
+		}
+	}()
+	fileContext := func(name string) (*mcp.CallToolResult, error) {
+		return session.CallTool(t.Context(), &mcp.CallToolParams{
+			Name: "go_file_context", Arguments: map[string]any{"file": filepath.Join(tree, name)},
+		})
+	}
+	// Load the existing test package before adding another file to it.
+	initial, err := fileContext("a_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial.IsError {
+		t.Fatal(resultText(t, initial))
+	}
+	if err := os.WriteFile(filepath.Join(tree, "b_test.go"), []byte("package p\nimport \"testing\"\nfunc TestB(t *testing.T) {}\n"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		time.Sleep(time.Second) // Allow the filesystem watcher's debounce to finish.
+		result, err := fileContext("b_test.go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsError {
+			if got := resultText(t, result); !strings.Contains(got, `package "example.com"`) {
+				t.Fatalf("new test file was not analyzed in its module: %s", got)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("new test file was never discovered: %s", resultText(t, result))
+		}
+	}
+}
+
 func TestMCPCommandLogging(t *testing.T) {
 	// Test that logging flags for headless MCP subcommand work as intended.
 	if !supportsFsnotify(runtime.GOOS) {

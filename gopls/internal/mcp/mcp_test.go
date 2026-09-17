@@ -154,3 +154,64 @@ func TestClientRootChange(t *testing.T) {
 		t.Fatal("Timeout waiting for updated roots.")
 	}
 }
+
+func TestClientRootsCapability(t *testing.T) {
+	for _, mode := range []string{"unsupported", "empty", "error"} {
+		t.Run(mode, func(t *testing.T) {
+			type response struct {
+				roots *mcp.ListRootsResult
+				err   error
+			}
+			results := make(chan response, 1)
+			server := internalmcp.NewServer(nil, nil, func(roots *mcp.ListRootsResult, err error) {
+				results <- response{roots, err}
+			})
+			var opts *mcp.ClientOptions
+			if mode == "unsupported" {
+				// An explicit empty capabilities value disables the SDK's default roots support.
+				opts = &mcp.ClientOptions{Capabilities: &mcp.ClientCapabilities{}}
+			}
+			client := mcp.NewClient(&mcp.Implementation{Name: "test-client"}, opts)
+			if mode == "error" {
+				client.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+					return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+						if method == "roots/list" {
+							return nil, errors.New("roots unavailable")
+						}
+						return next(ctx, method, req)
+					}
+				})
+			}
+			clientTransport, serverTransport := mcp.NewInMemoryTransports()
+			serverSession, err := server.Connect(t.Context(), serverTransport, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer serverSession.Close()
+			clientSession, err := client.Connect(t.Context(), clientTransport, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer clientSession.Close()
+			select {
+			case got := <-results:
+				switch mode {
+				case "unsupported":
+					if got.roots != nil || got.err != nil {
+						t.Fatalf("got %+v, want nil result and error", got)
+					}
+				case "empty":
+					if got.roots == nil || len(got.roots.Roots) != 0 || got.err != nil {
+						t.Fatalf("got %+v, want empty roots result", got)
+					}
+				case "error":
+					if got.err == nil {
+						t.Fatalf("got %+v, want roots request error", got)
+					}
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatal("timeout waiting for roots callback")
+			}
+		})
+	}
+}

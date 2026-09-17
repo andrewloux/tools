@@ -51,7 +51,8 @@ type Sessions interface {
 // The rootsHandler callback is invoked immediately after initialization and
 // subsequently whenever the MCP client signals a change to the workspace roots.
 // It is passed the list roots result returned by the MCP client, or an error
-// if the roots could not be retrieved. rootsHandler may be called concurrently.
+// if the roots could not be retrieved. If the client does not support roots,
+// both arguments are nil. rootsHandler may be called concurrently.
 func Serve(ctx context.Context, address string, sessions Sessions, isDaemon bool, rootsHandler func(*mcp.ListRootsResult, error)) error {
 	if strings.HasPrefix(address, ":") {
 		return fmt.Errorf("address %s implicitly binds all network interfaces; please use an explicit host such as 0.0.0.0 (all interfaces) or localhost (safer)", address)
@@ -253,6 +254,7 @@ func NewServer(session *cache.Session, lspServer protocol.Server, rootsHandler f
 						}
 
 						if session.InitializeParams().Capabilities.RootsV2 == nil {
+							rootsHandler(nil, nil)
 							return // client does not support roots
 						}
 

@@ -37,6 +37,18 @@ gopls mcp
 
 This runs a standalone gopls instance that speaks MCP over stdin/stdout.
 
+Start the server in the Go module or workspace directory you want to analyze.
+For file watching, the server uses roots reported by the MCP client, or its
+initial working directory if the client does not support roots. A candidate
+directory is watched only if it contains a `go.mod` or `go.work` file. Parent
+directories containing several repositories are skipped; the server does not
+search them for Go projects or expand a root to its ancestors. An empty roots
+list or a failed roots request does not enable the working-directory fallback.
+
+This check avoids watching unrelated directory trees, but does not limit the
+number of files watched within a valid module or workspace. It does not change
+the analysis workspace or the file notifications provided by an attached LSP client.
+
 ## Instructions to the model
 
 This gopls MCP server includes model instructions for its usage, describing

@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -78,6 +79,12 @@ func (m *headlessMCP) Run(ctx context.Context, args ...string) error {
 		return err
 	}
 	defer cli.terminate(ctx)
+	// connect initializes the LSP workspace from the working directory.
+	// Keep it as a fallback for clients that do not implement MCP roots.
+	initialRoot, err := os.Getwd()
+	if err != nil {
+		return err
+	}
 
 	var (
 		queueMu  sync.Mutex
@@ -138,14 +145,11 @@ func (m *headlessMCP) Run(ctx context.Context, args ...string) error {
 	}
 	defer w.Close()
 
-	// TODO(hxjiang): in LSP's use case, the file watcher should watch for LSP
-	// initial param workspace root.
-
 	// TODO(hxjiang): refactor the queue pattern into a helper function to avoid
 	// repetition.
 	var (
-		watchStop          = make(chan struct{}) // closed to broadcast "stop" event
-		watchQueueNonempty = make(chan struct{}) // each send indicates "nonempty"
+		watchStop          = make(chan struct{})    // closed to broadcast "stop" event
+		watchQueueNonempty = make(chan struct{}, 1) // each send indicates "nonempty"
 		watchQueueMu       sync.Mutex
 		watchQueue         []string
 	)
@@ -166,6 +170,9 @@ func (m *headlessMCP) Run(ctx context.Context, args ...string) error {
 		if err != nil {
 			errHandler(err)
 			return
+		}
+		if res == nil { // The client does not support roots.
+			res = &mcp.ListRootsResult{Roots: []*mcp.Root{{URI: string(protocol.URIFromPath(initialRoot))}}}
 		}
 		watchQueueMu.Lock()
 		for _, r := range res.Roots {
@@ -198,7 +205,7 @@ func (m *headlessMCP) Run(ctx context.Context, args ...string) error {
 				watchQueueMu.Unlock()
 
 				for _, dir := range queue {
-					if err := w.WatchDir(dir); err != nil {
+					if err := watchGoWorkspace(dir, w.WatchDir); err != nil {
 						errHandler(err)
 					}
 				}
@@ -218,6 +225,22 @@ func (m *headlessMCP) Run(ctx context.Context, args ...string) error {
 		log.Printf("Listening for MCP messages on stdin...")
 		return internalmcp.StartStdIO(ctx, sess, cli.server, rpcLog, watchRoots)
 	}
+}
+
+// watchGoWorkspace avoids recursively watching unrelated directories such as
+// home or the filesystem root. Only an explicitly named module or workspace
+// root is accepted; finding a module below dir does not make dir a Go root.
+func watchGoWorkspace(dir string, watchDir func(string) error) error {
+	for _, name := range []string{"go.mod", "go.work"} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err == nil && info.Mode().IsRegular() {
+			return watchDir(dir)
+		}
+	}
+	return fmt.Errorf("skipping watch for %q: no go.mod or go.work in this directory", dir)
 }
 
 // staticSessions implements the [internalmcp.Sessions] interface for a single gopls
