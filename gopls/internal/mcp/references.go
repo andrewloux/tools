@@ -11,7 +11,7 @@ import (
 	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"golang.org/x/tools/gopls/internal/cache"
+	"golang.org/x/tools/gopls/internal/file"
 	"golang.org/x/tools/gopls/internal/golang"
 	"golang.org/x/tools/gopls/internal/protocol"
 )
@@ -36,18 +36,16 @@ func (h *handler) referencesHandler(ctx context.Context, req *mcp.CallToolReques
 	return formatted, nil, err
 }
 
-func formatReferences(ctx context.Context, snapshot *cache.Snapshot, refs []protocol.Location) (*mcp.CallToolResult, error) {
+func formatReferences(ctx context.Context, fs file.Source, refs []protocol.Location) (*mcp.CallToolResult, error) {
 	if len(refs) == 0 {
 		return nil, fmt.Errorf("no references found")
 	}
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "The object has %v references. Their locations are listed below\n", len(refs))
-	for i, r := range refs {
-		fmt.Fprintf(&builder, "Reference %d\n", i+1)
-		fmt.Fprintf(&builder, "Located in the file: %s\n", filepath.ToSlash(r.URI.Path()))
-		refFh, err := snapshot.ReadFile(ctx, r.URI)
-		// If for some reason there is an error reading the file content, we should still
-		// return the references URIs.
+	fmt.Fprintf(&builder, "References: %d", len(refs))
+	for _, r := range refs {
+		fmt.Fprintf(&builder, "\n%s:%d:%d", filepath.ToSlash(r.URI.Path()), r.Range.Start.Line+1, r.Range.Start.Character+1)
+		// Keep the location even when its source text is unavailable.
+		refFh, err := fs.ReadFile(ctx, r.URI)
 		if err != nil {
 			continue
 		}
@@ -62,8 +60,8 @@ func formatReferences(ctx context.Context, snapshot *cache.Snapshot, refs []prot
 		} else {
 			continue
 		}
-		fmt.Fprintf(&builder, "The reference is located on line %v, which has content `%s`\n", r.Range.Start.Line+1, lineContent)
-		builder.WriteString("\n")
+		fmt.Fprintf(&builder, "\t%s", lineContent)
 	}
+	builder.WriteByte('\n')
 	return textResult(builder.String()), nil
 }

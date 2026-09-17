@@ -51,6 +51,14 @@ the `-instructions` flag to print them:
 gopls mcp -instructions > /path/to/contextFile.md
 ```
 
+## Reference output
+
+The `go_references` and `go_symbol_references` tools report a total count
+followed by one `path:line:column` entry per reference. Lines and UTF-16
+columns are one-based. Each entry includes its source line when available;
+the location is retained when the source text cannot be read. The tools
+do not truncate the reference list, though an MCP client may limit output.
+
 ## Coding assistant setup
 
 To use the gopls MCP server with an LLM-based coding assistant,

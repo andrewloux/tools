@@ -33,26 +33,15 @@ package b
 import "example.com/a"
 
 func callFoo() {
-    a.Foo()
+    a.Foo(); a.Foo()
 }
 
 -- @aFoo --
-The object has 3 references. Their locations are listed below
-Reference 1
-Located in the file: $WORKDIR/a/a.go
-The reference is located on line 3, which has content `func Foo() {}`
-
-Reference 2
-Located in the file: $WORKDIR/a/a.go
-The reference is located on line 6, which has content `Foo()`
-
-Reference 3
-Located in the file: $WORKDIR/b/b.go
-The reference is located on line 6, which has content `a.Foo()`
-
+References: 4
+$WORKDIR/a/a.go:3:6	func Foo() {}
+$WORKDIR/a/a.go:6:5	Foo()
+$WORKDIR/b/b.go:6:7	a.Foo(); a.Foo()
+$WORKDIR/b/b.go:6:16	a.Foo(); a.Foo()
 -- @aBar --
-The object has 1 references. Their locations are listed below
-Reference 1
-Located in the file: $WORKDIR/a/a.go
-The reference is located on line 11, which has content `func (T) Bar() {}`
-
+References: 1
+$WORKDIR/a/a.go:11:10	func (T) Bar() {}
