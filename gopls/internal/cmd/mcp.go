@@ -133,8 +133,17 @@ func (m *headlessMCP) Run(ctx context.Context, args ...string) error {
 	}
 	defer w.Close()
 
-	// TODO(hxjiang): in LSP's use case, the file watcher should watch for LSP
-	// initial param workspace root.
+	// Watch the initial workspace before serving tools. MCP roots are optional,
+	// so a client may never report any. Per-file freshness checks cannot discover
+	// files added to an already loaded package.
+	// Use the same directory as app.connect: session views may still be loading.
+	root, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("finding initial workspace: %w", err)
+	}
+	if err := w.WatchDir(root); err != nil {
+		return fmt.Errorf("watching initial workspace %q: %w", root, err)
+	}
 
 	// TODO(hxjiang): refactor the queue pattern into a helper function to avoid
 	// repetition.
