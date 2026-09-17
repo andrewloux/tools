@@ -136,7 +136,8 @@ func (m *headlessMCP) Run(ctx context.Context, args ...string) error {
 	// Watch the initial workspace before serving tools. MCP roots are optional,
 	// so a client may never report any. Per-file freshness checks cannot discover
 	// files added to an already loaded package.
-	// Use the same directory as app.connect: session views may still be loading.
+	// gopls initializes its LSP workspace from the process working directory.
+	// Use that directory here too; session views may still be loading.
 	root, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("finding initial workspace: %w", err)
